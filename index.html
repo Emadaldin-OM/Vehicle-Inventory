@@ -1,0 +1,258 @@
+import { useEffect, useState } from "react";
+import { useSearchParams } from "react-router-dom";
+import api from "../api";
+import Modal from "../components/Modal";
+
+const emptyForm = { sku: "", name: "", unit: "", quantity: "", low_stock_threshold: "" };
+
+export default function Items({ onDataChanged }) {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [items, setItems] = useState([]);
+  const [query, setQuery] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [modalOpen, setModalOpen] = useState(false);
+  const [editingItem, setEditingItem] = useState(null);
+  const [form, setForm] = useState(emptyForm);
+  const [error, setError] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [filterLowStock, setFilterLowStock] = useState(searchParams.get("filter") === "low-stock");
+
+  async function load(q) {
+    setLoading(true);
+    const { data } = await api.get("/items", { params: q ? { q } : {} });
+    setItems(data);
+    setLoading(false);
+  }
+
+  useEffect(() => {
+    load("");
+  }, []);
+
+  useEffect(() => {
+    const handle = setTimeout(() => load(query), 250);
+    return () => clearTimeout(handle);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [query]);
+
+  function openCreate() {
+    setEditingItem(null);
+    setForm(emptyForm);
+    setError("");
+    setModalOpen(true);
+  }
+
+  function openEdit(item) {
+    setEditingItem(item);
+    setForm({
+      sku: item.sku,
+      name: item.name,
+      unit: item.unit,
+      quantity: String(item.quantity),
+      low_stock_threshold: String(item.low_stock_threshold),
+    });
+    setError("");
+    setModalOpen(true);
+  }
+
+  async function handleSubmit(e) {
+    e.preventDefault();
+    setSaving(true);
+    setError("");
+    try {
+      const payload = {
+        sku: form.sku,
+        name: form.name,
+        unit: form.unit,
+        quantity: Number(form.quantity),
+        low_stock_threshold: Number(form.low_stock_threshold),
+      };
+      if (editingItem) {
+        await api.put(`/items/${editingItem.id}`, payload);
+      } else {
+        await api.post("/items", payload);
+      }
+      setModalOpen(false);
+      await load(query);
+      onDataChanged?.();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleDelete(item) {
+    if (!confirm(`Delete "${item.name}" (${item.sku})? This can't be undone.`)) return;
+    try {
+      await api.delete(`/items/${item.id}`);
+      await load(query);
+      onDataChanged?.();
+    } catch (err) {
+      alert(err.message);
+    }
+  }
+
+  const visibleItems = filterLowStock ? items.filter((i) => i.low_stock) : items;
+
+  function toggleLowStockFilter() {
+    const next = !filterLowStock;
+    setFilterLowStock(next);
+    if (next) setSearchParams({ filter: "low-stock" });
+    else setSearchParams({});
+  }
+
+  return (
+    <div>
+      <div className="toolbar">
+        <div className="toolbar-left">
+          <div className="search-box">
+            <span className="search-icon">⌕</span>
+            <input
+              type="text"
+              placeholder="Search by barcode, SKU, or name…"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+            />
+          </div>
+          <button
+            className={"btn btn-sm" + (filterLowStock ? " btn-primary" : "")}
+            onClick={toggleLowStockFilter}
+          >
+            Low stock only
+          </button>
+        </div>
+        <div className="toolbar-right">
+          <a className="btn btn-sm" href={`${api.defaults.baseURL}/export/stock.xlsx`}>
+            Export Excel
+          </a>
+          <a className="btn btn-sm" href={`${api.defaults.baseURL}/export/stock.pdf`}>
+            Export PDF
+          </a>
+          <button className="btn btn-primary btn-sm" onClick={openCreate}>
+            + Add item
+          </button>
+        </div>
+      </div>
+
+      <div className="table-wrap">
+        {loading ? (
+          <div className="empty-state">Loading…</div>
+        ) : visibleItems.length === 0 ? (
+          <div className="empty-state">
+            {query ? `No items match "${query}".` : "No items yet — add your first one."}
+          </div>
+        ) : (
+          <table>
+            <thead>
+              <tr>
+                <th>SKU / Barcode</th>
+                <th>Name</th>
+                <th>Unit</th>
+                <th>On hand</th>
+                <th>Threshold</th>
+                <th>Status</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {visibleItems.map((item) => (
+                <tr key={item.id}>
+                  <td>
+                    <span className="sku">{item.sku}</span>
+                  </td>
+                  <td>{item.name}</td>
+                  <td className="text-muted">{item.unit}</td>
+                  <td className="num">{item.quantity}</td>
+                  <td className="num text-muted">{item.low_stock_threshold}</td>
+                  <td>
+                    {item.low_stock ? (
+                      <span className="tag tag-danger">Low</span>
+                    ) : (
+                      <span className="tag tag-success">OK</span>
+                    )}
+                  </td>
+                  <td>
+                    <button className="btn btn-sm" onClick={() => openEdit(item)}>
+                      Edit
+                    </button>{" "}
+                    <button className="btn btn-sm btn-danger" onClick={() => handleDelete(item)}>
+                      Delete
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+
+      {modalOpen && (
+        <Modal title={editingItem ? "Edit item" : "Add item"} onClose={() => setModalOpen(false)}>
+          <form onSubmit={handleSubmit}>
+            {error && <div className="form-error">{error}</div>}
+            <div className="field">
+              <label>Barcode / SKU</label>
+              <input
+                value={form.sku}
+                onChange={(e) => setForm({ ...form, sku: e.target.value })}
+                placeholder="e.g. PVC-050-3M"
+                required
+              />
+            </div>
+            <div className="field">
+              <label>Name</label>
+              <input
+                value={form.name}
+                onChange={(e) => setForm({ ...form, name: e.target.value })}
+                placeholder="e.g. PVC Pipe 50mm x 3m"
+                required
+              />
+            </div>
+            <div className="field-row">
+              <div className="field">
+                <label>Unit</label>
+                <input
+                  value={form.unit}
+                  onChange={(e) => setForm({ ...form, unit: e.target.value })}
+                  placeholder="pcs, kg, reel…"
+                  required
+                />
+              </div>
+              <div className="field">
+                <label>Quantity on hand</label>
+                <input
+                  type="number"
+                  min="0"
+                  step="any"
+                  value={form.quantity}
+                  onChange={(e) => setForm({ ...form, quantity: e.target.value })}
+                  required
+                />
+              </div>
+            </div>
+            <div className="field">
+              <label>Low stock threshold</label>
+              <input
+                type="number"
+                min="0"
+                step="any"
+                value={form.low_stock_threshold}
+                onChange={(e) => setForm({ ...form, low_stock_threshold: e.target.value })}
+                required
+              />
+              <div className="hint">You'll get an alert when quantity on hand drops to or below this number.</div>
+            </div>
+            <div className="form-actions">
+              <button type="button" className="btn" onClick={() => setModalOpen(false)}>
+                Cancel
+              </button>
+              <button type="submit" className="btn btn-primary" disabled={saving}>
+                {saving ? "Saving…" : editingItem ? "Save changes" : "Add item"}
+              </button>
+            </div>
+          </form>
+        </Modal>
+      )}
+    </div>
+  );
+}

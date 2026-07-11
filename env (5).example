@@ -1,0 +1,41 @@
+require("dotenv").config();
+const express = require("express");
+const cors = require("cors");
+const morgan = require("morgan");
+
+const db = require("./db");
+const { seed } = require("./seed");
+const itemsRouter = require("./routes/items");
+const vehiclesRouter = require("./routes/vehicles");
+const tripsRouter = require("./routes/trips");
+const exportRouter = require("./routes/export");
+const errorHandler = require("./middleware/errorHandler");
+
+// Auto-seed on first boot (empty database) so a fresh deploy — e.g. on Render —
+// has working demo data without needing shell access to run `npm run seed`.
+const itemCount = db.prepare(`SELECT count(*) AS c FROM items`).get().c;
+if (itemCount === 0) {
+  console.log("Empty database detected — seeding demo data...");
+  seed();
+}
+
+const app = express();
+const PORT = process.env.PORT || 4000;
+
+app.use(cors());
+app.use(express.json());
+app.use(morgan("dev"));
+
+app.get("/api/health", (req, res) => res.json({ ok: true }));
+
+app.use("/api/items", itemsRouter);
+app.use("/api/vehicles", vehiclesRouter);
+app.use("/api/trips", tripsRouter);
+app.use("/api/export", exportRouter);
+
+app.use((req, res) => res.status(404).json({ error: "Not found" }));
+app.use(errorHandler);
+
+app.listen(PORT, () => {
+  console.log(`Vehicle Inventory API listening on http://localhost:${PORT}`);
+});

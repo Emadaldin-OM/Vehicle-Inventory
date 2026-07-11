@@ -1,0 +1,87 @@
+import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
+import api from "../api";
+
+export default function History() {
+  const [trips, setTrips] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [statusFilter, setStatusFilter] = useState("all");
+
+  async function load() {
+    setLoading(true);
+    const { data } = await api.get("/trips");
+    setTrips(data);
+    setLoading(false);
+  }
+
+  useEffect(() => {
+    load();
+  }, []);
+
+  const visible = statusFilter === "all" ? trips : trips.filter((t) => t.status === statusFilter);
+
+  return (
+    <div>
+      <div className="toolbar">
+        <div className="toolbar-left">
+          <select style={{ maxWidth: 180 }} value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
+            <option value="all">All trips</option>
+            <option value="out">Out</option>
+            <option value="returned">Returned</option>
+          </select>
+        </div>
+        <div className="toolbar-right">
+          <a className="btn btn-sm" href={`${api.defaults.baseURL}/export/trips.xlsx`}>
+            Export Excel
+          </a>
+          <a className="btn btn-sm" href={`${api.defaults.baseURL}/export/trips.pdf`}>
+            Export PDF
+          </a>
+        </div>
+      </div>
+
+      <div className="table-wrap">
+        {loading ? (
+          <div className="empty-state">Loading…</div>
+        ) : visible.length === 0 ? (
+          <div className="empty-state">No trips match this filter.</div>
+        ) : (
+          <table>
+            <thead>
+              <tr>
+                <th>Trip</th>
+                <th>Vehicle</th>
+                <th>Status</th>
+                <th>Taken at</th>
+                <th>Returned at</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {visible.map((trip) => (
+                <tr key={trip.id}>
+                  <td className="mono">#{trip.id}</td>
+                  <td>
+                    <span className="sku">{trip.vehicle_registration}</span>
+                  </td>
+                  <td>
+                    <span className={"tag " + (trip.status === "out" ? "tag-danger" : "tag-success")}>
+                      {trip.status}
+                    </span>
+                  </td>
+                  <td className="text-muted">{trip.taken_at}</td>
+                  <td className="text-muted">{trip.returned_at || "—"}</td>
+                  <td>
+                    <Link className="btn btn-sm" to={`/trips/${trip.id}`}>
+                      View
+                    </Link>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+    </div>
+  );
+}

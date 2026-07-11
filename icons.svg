@@ -1,0 +1,131 @@
+import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
+import api from "../api";
+import ItemAutocomplete from "../components/ItemAutocomplete";
+
+function newLine() {
+  return { key: Math.random().toString(36).slice(2), item: null, qty: "" };
+}
+
+export default function NewTrip({ onDataChanged }) {
+  const navigate = useNavigate();
+  const [vehicles, setVehicles] = useState([]);
+  const [vehicleId, setVehicleId] = useState("");
+  const [notes, setNotes] = useState("");
+  const [lines, setLines] = useState([newLine()]);
+  const [error, setError] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    api.get("/vehicles").then(({ data }) => {
+      setVehicles(data);
+      if (data.length > 0) setVehicleId(String(data[0].id));
+    });
+  }, []);
+
+  function updateLine(key, patch) {
+    setLines((prev) => prev.map((l) => (l.key === key ? { ...l, ...patch } : l)));
+  }
+
+  function removeLine(key) {
+    setLines((prev) => prev.filter((l) => l.key !== key));
+  }
+
+  function addLine() {
+    setLines((prev) => [...prev, newLine()]);
+  }
+
+  const selectedItemIds = lines.filter((l) => l.item).map((l) => l.item.id);
+
+  async function handleSubmit(e) {
+    e.preventDefault();
+    setError("");
+
+    const validLines = lines.filter((l) => l.item && l.qty !== "");
+    if (!vehicleId) return setError("Select a vehicle");
+    if (validLines.length === 0) return setError("Add at least one item with a quantity");
+
+    for (const l of validLines) {
+      if (Number(l.qty) <= 0) return setError(`Quantity for "${l.item.name}" must be greater than 0`);
+      if (Number(l.qty) > l.item.quantity)
+        return setError(`Only ${l.item.quantity} ${l.item.unit} of "${l.item.name}" in stock`);
+    }
+
+    setSaving(true);
+    try {
+      const { data } = await api.post("/trips", {
+        vehicle_id: Number(vehicleId),
+        notes,
+        items: validLines.map((l) => ({ item_id: l.item.id, qty_taken: Number(l.qty) })),
+      });
+      onDataChanged?.();
+      navigate(`/trips/${data.id}`);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="card" style={{ maxWidth: 640 }}>
+      <form onSubmit={handleSubmit}>
+        {error && <div className="form-error">{error}</div>}
+
+        <div className="field">
+          <label>Vehicle</label>
+          <select value={vehicleId} onChange={(e) => setVehicleId(e.target.value)} required>
+            {vehicles.length === 0 && <option value="">No vehicles — add one first</option>}
+            {vehicles.map((v) => (
+              <option key={v.id} value={v.id}>
+                {v.registration} {v.name ? `— ${v.name}` : ""}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div className="field">
+          <label>Job / notes (optional)</label>
+          <input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="e.g. Valve replacement — site B" />
+        </div>
+
+        <label>Items to take</label>
+        {lines.map((line) => (
+          <div className="line-item" key={line.key}>
+            <ItemAutocomplete
+              value={line.item}
+              excludeIds={selectedItemIds.filter((id) => id !== line.item?.id)}
+              onSelect={(item) => updateLine(line.key, { item, qty: line.qty || "1" })}
+            />
+            <input
+              type="number"
+              min="0"
+              step="any"
+              placeholder="Qty"
+              value={line.qty}
+              onChange={(e) => updateLine(line.key, { qty: e.target.value })}
+            />
+            <button
+              type="button"
+              className="line-item-remove"
+              onClick={() => removeLine(line.key)}
+              disabled={lines.length === 1}
+              aria-label="Remove item"
+            >
+              ×
+            </button>
+          </div>
+        ))}
+        <button type="button" className="btn btn-sm" onClick={addLine}>
+          + Add another item
+        </button>
+
+        <div className="form-actions">
+          <button type="submit" className="btn btn-primary" disabled={saving || vehicles.length === 0}>
+            {saving ? "Starting trip…" : "Start trip"}
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}

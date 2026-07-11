@@ -1,0 +1,161 @@
+import { useEffect, useState } from "react";
+import api from "../api";
+import Modal from "../components/Modal";
+
+const emptyForm = { registration: "", name: "", type: "" };
+
+export default function Vehicles() {
+  const [vehicles, setVehicles] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [modalOpen, setModalOpen] = useState(false);
+  const [editingVehicle, setEditingVehicle] = useState(null);
+  const [form, setForm] = useState(emptyForm);
+  const [error, setError] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  async function load() {
+    setLoading(true);
+    const { data } = await api.get("/vehicles");
+    setVehicles(data);
+    setLoading(false);
+  }
+
+  useEffect(() => {
+    load();
+  }, []);
+
+  function openCreate() {
+    setEditingVehicle(null);
+    setForm(emptyForm);
+    setError("");
+    setModalOpen(true);
+  }
+
+  function openEdit(vehicle) {
+    setEditingVehicle(vehicle);
+    setForm({ registration: vehicle.registration, name: vehicle.name || "", type: vehicle.type || "" });
+    setError("");
+    setModalOpen(true);
+  }
+
+  async function handleSubmit(e) {
+    e.preventDefault();
+    setSaving(true);
+    setError("");
+    try {
+      if (editingVehicle) {
+        await api.put(`/vehicles/${editingVehicle.id}`, form);
+      } else {
+        await api.post("/vehicles", form);
+      }
+      setModalOpen(false);
+      await load();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleDelete(vehicle) {
+    if (!confirm(`Delete vehicle "${vehicle.registration}"?`)) return;
+    try {
+      await api.delete(`/vehicles/${vehicle.id}`);
+      await load();
+    } catch (err) {
+      alert(err.message);
+    }
+  }
+
+  return (
+    <div>
+      <div className="toolbar">
+        <div className="toolbar-left" />
+        <div className="toolbar-right">
+          <button className="btn btn-primary btn-sm" onClick={openCreate}>
+            + Add vehicle
+          </button>
+        </div>
+      </div>
+
+      <div className="table-wrap">
+        {loading ? (
+          <div className="empty-state">Loading…</div>
+        ) : vehicles.length === 0 ? (
+          <div className="empty-state">No vehicles yet — add your first one.</div>
+        ) : (
+          <table>
+            <thead>
+              <tr>
+                <th>Registration</th>
+                <th>Name</th>
+                <th>Type</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {vehicles.map((v) => (
+                <tr key={v.id}>
+                  <td>
+                    <span className="sku">{v.registration}</span>
+                  </td>
+                  <td>{v.name || "—"}</td>
+                  <td className="text-muted">{v.type || "—"}</td>
+                  <td>
+                    <button className="btn btn-sm" onClick={() => openEdit(v)}>
+                      Edit
+                    </button>{" "}
+                    <button className="btn btn-sm btn-danger" onClick={() => handleDelete(v)}>
+                      Delete
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+
+      {modalOpen && (
+        <Modal title={editingVehicle ? "Edit vehicle" : "Add vehicle"} onClose={() => setModalOpen(false)}>
+          <form onSubmit={handleSubmit}>
+            {error && <div className="form-error">{error}</div>}
+            <div className="field">
+              <label>Registration</label>
+              <input
+                value={form.registration}
+                onChange={(e) => setForm({ ...form, registration: e.target.value })}
+                placeholder="e.g. OM-1234-A"
+                required
+              />
+            </div>
+            <div className="field">
+              <label>Name</label>
+              <input
+                value={form.name}
+                onChange={(e) => setForm({ ...form, name: e.target.value })}
+                placeholder="e.g. Crew Truck 1"
+              />
+            </div>
+            <div className="field">
+              <label>Type</label>
+              <input
+                value={form.type}
+                onChange={(e) => setForm({ ...form, type: e.target.value })}
+                placeholder="e.g. Pickup, Van"
+              />
+            </div>
+            <div className="form-actions">
+              <button type="button" className="btn" onClick={() => setModalOpen(false)}>
+                Cancel
+              </button>
+              <button type="submit" className="btn btn-primary" disabled={saving}>
+                {saving ? "Saving…" : editingVehicle ? "Save changes" : "Add vehicle"}
+              </button>
+            </div>
+          </form>
+        </Modal>
+      )}
+    </div>
+  );
+}
